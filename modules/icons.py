@@ -27,6 +27,8 @@ ocr: str = "&#xfcc3;"
 gamemode: str = "&#xf026;"
 gamemode_off: str = "&#xf111;"
 close: str = "&#xeb55;"
+keyboard: str = "⌨️"
+keyboard_on: str = "⌨"
 
 # Circles
 temp: str = "&#xeb38;"
@@ -175,6 +177,7 @@ terminal: str = "&#xebef;"
 timer_off: str = "&#xf146;"
 timer_on: str = "&#xf756;"
 spy: str = "&#xf227;"
+cursor: str = "&#xf22a;"
 
 # Dice
 dice_1: str = "&#xf08b;"

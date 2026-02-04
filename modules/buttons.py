@@ -102,6 +102,7 @@ class NetworkButton(Box):
         if self.network_client.wifi_device:
             self.network_client.wifi_device.connect('notify::enabled', self.update_state)
             self.network_client.wifi_device.connect('notify::ssid', self.update_state)
+            self.network_client.wifi_device.connect('notify::state', self.update_state)
             self.update_state()
 
     def _animate_searching(self):
@@ -140,7 +141,7 @@ class NetworkButton(Box):
         wifi = self.network_client.wifi_device
         ethernet = self.network_client.ethernet_device
 
-        if wifi and not wifi.enabled:
+        if not wifi:
             self._stop_animation()
             self.network_icon.set_markup(icons.wifi_off)
             for widget in self.widgets_list_internal:

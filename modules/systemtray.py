@@ -11,14 +11,19 @@ import config.data as data
 
 logger = logging.getLogger(__name__)
 
+
 class SystemTray(Box):
     def __init__(self, pixel_size: int = 20, **kwargs) -> None:
-        orientation = Gtk.Orientation.HORIZONTAL if not data.VERTICAL else Gtk.Orientation.VERTICAL
+        orientation = (
+            Gtk.Orientation.HORIZONTAL
+            if not data.VERTICAL
+            else Gtk.Orientation.VERTICAL
+        )
         super().__init__(
             name="systray",
             orientation=orientation,
             spacing=8,
-            **kwargs
+            **kwargs,
         )
         self.enabled = True
         super().set_visible(False)
@@ -38,33 +43,84 @@ class SystemTray(Box):
         super().set_visible(self.enabled and has)
 
     def _get_item_pixbuf(self, item: Gray.Item) -> GdkPixbuf.Pixbuf:
+        """
+        Пытаемся получить иконку из pixmap'ов, пути или темы; если не получилось —
+        возвращаем fallback 'image-missing', чтобы никогда не падать. 
+        """
+        # 1. Пробуем готовые pixmaps от Gray
         try:
-            pm = Gray.get_pixmap_for_pixmaps(item.get_icon_pixmaps(), self.pixel_size)
-            if pm:
+            pm = Gray.get_pixmap_for_pixmaps(
+                item.get_icon_pixmaps(),
+                self.pixel_size,
+            )
+            if pm is not None:
                 return pm.as_pixbuf(self.pixel_size, GdkPixbuf.InterpType.HYPER)
+        except Exception as e:
+            logger.debug(f"Gray pixmap load failed: {e}")
 
+        # 2. Имя/путь иконки
+        name = None
+        try:
             name = item.get_icon_name()
-            # If IconName is a file path, prioritize loading directly from the file
-            if name and os.path.exists(name):
-                try:
-                    return GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                        name, self.pixel_size, self.pixel_size, True
-                    )
-                except Exception as e:
-                    # The file path exists but loading fails, falling back to theme search
-                    logger.debug(
-                        f"Load icon from file failed: {e}; fallback to theme for '{name}'"
-                    )
+        except Exception as e:
+            logger.debug(f"get_icon_name failed: {e}")
 
+        # Если есть путь к файлу — пробуем загрузить напрямую
+        if name and os.path.exists(name):
+            try:
+                return GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    name,
+                    self.pixel_size,
+                    self.pixel_size,
+                    True,
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Load icon from file '{name}' failed: {e}; "
+                    "falling back to theme lookup"
+                )
+
+        # 3. Поиск в теме, только если name не None/пустой
+        try:
             theme = Gtk.IconTheme.new()
-            path = item.get_icon_theme_path()
+            path = None
+            try:
+                path = item.get_icon_theme_path()
+            except Exception as e:
+                logger.debug(f"get_icon_theme_path failed: {e}")
+
             if path:
                 theme.prepend_search_path(path)
-            return theme.load_icon(name, self.pixel_size, Gtk.IconLookupFlags.FORCE_SIZE)
+
+            if name:
+                # Здесь раньше падало с TypeError, если name == None
+                return theme.load_icon(
+                    name,
+                    self.pixel_size,
+                    Gtk.IconLookupFlags.FORCE_SIZE,
+                )
         except GLib.Error as e:
-            logger.debug(f"Icon load error {e}")
+            logger.debug(f"Icon load error for '{name}': {e}")
+        except TypeError as e:
+            # На случай, если всё-таки придёт None или что-то кривое
+            logger.debug(f"Icon load TypeError for '{name}': {e}")
+
+        # 4. Жёсткий fallback — системная 'image-missing'
+        try:
             return Gtk.IconTheme.get_default().load_icon(
-                "image-missing", self.pixel_size, Gtk.IconLookupFlags.FORCE_SIZE
+                "image-missing",
+                self.pixel_size,
+                Gtk.IconLookupFlags.FORCE_SIZE,
+            )
+        except GLib.Error as e:
+            logger.error(f"Failed to load fallback icon 'image-missing': {e}")
+            # На самый крайний случай: создаём пустой pixbuf
+            return GdkPixbuf.Pixbuf.new(
+                colorspace=GdkPixbuf.Colorspace.RGB,
+                has_alpha=True,
+                bits_per_sample=8,
+                width=self.pixel_size,
+                height=self.pixel_size,
             )
 
     def _refresh_item_ui(self, item: Gray.Item, button: Gtk.Button):
@@ -76,10 +132,11 @@ class SystemTray(Box):
             new = Gtk.Image.new_from_pixbuf(pixbuf)
             button.set_image(new)
             new.show()
+
         tip = None
-        if hasattr(item, 'get_tooltip_text'):
+        if hasattr(item, "get_tooltip_text"):
             tip = item.get_tooltip_text()
-        elif hasattr(item, 'get_title'):
+        elif hasattr(item, "get_title"):
             tip = item.get_title()
         if tip:
             button.set_tooltip_text(tip)
@@ -91,6 +148,7 @@ class SystemTray(Box):
         if not item:
             return
 
+        # Если такой id уже есть — пересоздаём кнопку
         if identifier in self.buttons_by_id:
             self.buttons_by_id[identifier].destroy()
             del self.buttons_by_id[identifier]
@@ -100,17 +158,28 @@ class SystemTray(Box):
         self.buttons_by_id[identifier] = btn
         self.items_by_id[identifier] = item
 
-        item.connect("notify::icon-pixmaps",
-                     lambda itm, pspec: self._refresh_item_ui(itm, btn))
-        item.connect("notify::icon-name",
-                     lambda itm, pspec: self._refresh_item_ui(itm, btn))
+        item.connect(
+            "notify::icon-pixmaps",
+            lambda itm, pspec: self._refresh_item_ui(itm, btn),
+        )
+        item.connect(
+            "notify::icon-name",
+            lambda itm, pspec: self._refresh_item_ui(itm, btn),
+        )
 
         try:
-            item.connect("icon-changed", lambda itm: self._refresh_item_ui(itm, btn))
+            item.connect(
+                "icon-changed",
+                lambda itm: self._refresh_item_ui(itm, btn),
+            )
         except TypeError:
+            # Не все реализации Gray.Item могут иметь этот сигнал
             pass
 
-        item.connect("removed", lambda itm: self.on_item_instance_removed(identifier, itm))
+        item.connect(
+            "removed",
+            lambda itm: self.on_item_instance_removed(identifier, itm),
+        )
 
         self.add(btn)
         btn.show_all()
@@ -118,12 +187,23 @@ class SystemTray(Box):
 
     def do_bake_item_button(self, item: Gray.Item) -> Gtk.Button:
         btn = Gtk.Button()
-        btn.connect("button-press-event", lambda b, e: self.on_button_click(b, item, e))
-        img = Gtk.Image.new_from_pixbuf(self._get_item_pixbuf(item))
+        btn.connect(
+            "button-press-event",
+            lambda b, e: self.on_button_click(b, item, e),
+        )
+
+        pixbuf = self._get_item_pixbuf(item)
+        img = Gtk.Image.new_from_pixbuf(pixbuf)
         btn.set_image(img)
-        tip = item.get_tooltip_text() if hasattr(item, 'get_tooltip_text') else getattr(item, 'get_title', lambda: None)()
+
+        tip = None
+        if hasattr(item, "get_tooltip_text"):
+            tip = item.get_tooltip_text()
+        elif hasattr(item, "get_title"):
+            tip = item.get_title()
         if tip:
             btn.set_tooltip_text(tip)
+
         return btn
 
     def on_item_instance_removed(self, identifier: str, removed_item: Gray.Item):
@@ -134,19 +214,28 @@ class SystemTray(Box):
                 btn.destroy()
             self._update_visibility()
 
-    def on_button_click(self, button: Gtk.Button, item: Gray.Item, event: Gdk.EventButton):
+    def on_button_click(
+        self,
+        button: Gtk.Button,
+        item: Gray.Item,
+        event: Gdk.EventButton,
+    ):
         if event.button == Gdk.BUTTON_PRIMARY:
             try:
                 item.activate(int(event.x_root), int(event.y_root))
             except Exception as e:
                 logger.error(f"Activate error: {e}")
         elif event.button == Gdk.BUTTON_SECONDARY:
-            menu = getattr(item, 'get_menu', lambda: None)()
+            menu = getattr(item, "get_menu", lambda: None)()
             if isinstance(menu, Gtk.Menu):
-                menu.popup_at_widget(button, Gdk.Gravity.SOUTH_WEST,
-                                     Gdk.Gravity.NORTH_WEST, event)
+                menu.popup_at_widget(
+                    button,
+                    Gdk.Gravity.SOUTH_WEST,
+                    Gdk.Gravity.NORTH_WEST,
+                    event,
+                )
             else:
-                cm = getattr(item, 'context_menu', None)
+                cm = getattr(item, "context_menu", None)
                 if cm:
                     try:
                         cm(int(event.x_root), int(event.y_root))

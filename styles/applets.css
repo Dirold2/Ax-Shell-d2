@@ -82,6 +82,21 @@
   background-color: var(--surface-bright);
 }
 
+#bluetooth-forget {
+  font-weight: bold;
+  background-color: var(--red);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+#bluetooth-forget label {
+  color: var(--shadow);
+}
+
+#bluetooth-forget:hover {
+  background-color: var(--surface-bright);
+}
+
 #bluetooth-paired,
 #bluetooth-available {
   background-color: var(--surface);

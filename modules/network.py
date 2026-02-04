@@ -27,7 +27,7 @@ class WifiAccessPointSlot(CenterBox):
 
         self.is_active = False
         active_ap_details = ap_data.get("active-ap")
-        if active_ap_details and hasattr(active_ap_details, 'get_bssid') and active_ap_details.get_bssid() == ap_data.get("bssid"):
+        if active_ap_details and hasattr(active_ap_details, 'get_bssid') and active_ap_details.get_bssid() == ap_data.get("bssid") and wifi_service.enabled and wifi_service.state not in ["unavailable", "disconnected"]:
             self.is_active = True
         
         self.ap_icon = Image(icon_name=icon_name, size=24)
@@ -123,24 +123,26 @@ class NetworkConnections(Box):
         if self.network_client.wifi_device:
             self.network_client.wifi_device.connect("changed", self._load_access_points)
             self.network_client.wifi_device.connect("notify::enabled", self._update_wifi_status_ui)
-            self._update_wifi_status_ui() 
+            self.network_client.wifi_device.connect("notify::state", self._update_wifi_status_ui)
+            self._update_wifi_status_ui()
             if self.network_client.wifi_device.enabled:
                 self._load_access_points() 
             else:
                 self.status_label.set_label("Wi-Fi disabled.")
                 self.status_label.set_visible(True)
         else:
-            self.status_label.set_label("Wi-Fi device not available.")
+            self.status_label.set_label("Wi-Fi disabled.")
             self.status_label.set_visible(True)
+            self.wifi_toggle_button_icon.set_markup(icons.wifi_off)
             self.wifi_toggle_button.set_sensitive(False)
             self.refresh_button.set_sensitive(False)
 
     def _update_wifi_status_ui(self, *args):
         if self.network_client.wifi_device:
-            enabled = self.network_client.wifi_device.enabled
+            enabled = self.network_client.wifi_device.enabled and self.network_client.wifi_device.state not in ["unavailable", "disconnected"]
             self.wifi_toggle_button.set_sensitive(True)
             self.refresh_button.set_sensitive(enabled)
-            
+
             if enabled:
                 self.wifi_toggle_button_icon.set_markup(icons.wifi_3)
             else:
@@ -148,7 +150,7 @@ class NetworkConnections(Box):
                 self.status_label.set_label("Wi-Fi disabled.")
                 self.status_label.set_visible(True)
                 self._clear_ap_list()
-            
+
             if enabled and not self.ap_list_box.get_children():
                 GLib.idle_add(self._refresh_access_points)
         else:
@@ -172,7 +174,7 @@ class NetworkConnections(Box):
             child.destroy()
 
     def _load_access_points(self, *args):
-        if not self.network_client.wifi_device or not self.network_client.wifi_device.enabled:
+        if not self.network_client.wifi_device or not self.network_client.wifi_device.enabled or self.network_client.wifi_device.state in ["unavailable", "disconnected"]:
             self._clear_ap_list()
             self.status_label.set_label("Wi-Fi disabled.")
             self.status_label.set_visible(True)

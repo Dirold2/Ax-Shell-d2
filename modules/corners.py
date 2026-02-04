@@ -26,7 +26,7 @@ class Corners(Window):
     def __init__(self):
         super().__init__(
             name="corners",
-            layer="bottom",
+            layer=1,
             anchor="top bottom left right",
             exclusivity="normal",
             # pass_through=True,
